@@ -7,7 +7,6 @@
   <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.14.0/firebase-firestore-compat.js"></script>
-  
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -23,23 +22,45 @@
 <body>
 <div id="root"></div>
 <script type="text/babel">
-const {useState,useEffect,useRef,useCallback} = React;
+const {useState, useEffect, useRef, useCallback} = React;
 
-// ─── Constants ───────────────────────────────────────────────────────────────
-const firebase.initializeApp(firebaseConfig) = {
+// ════════════════════════════════════════════════════
+//  🔥 Firebase 설정 — 본인 값으로 교체하세요
+// ════════════════════════════════════════════════════
+const firebaseConfig = {
   apiKey: "AIzaSyCHtiy2-iryrlwuhEvVrEboriM3IBJut2U",
   authDomain: "wine-cellar-56a6b.firebaseapp.com",
   projectId: "wine-cellar-56a6b",
   storageBucket: "wine-cellar-56a6b.firebasestorage.app",
   messagingSenderId: "205126816403",
   appId: "1:205126816403:web:ad02ad40aeae51ad217366"
-};
 
+};
+// ════════════════════════════════════════════════════
+
+// Firebase 초기화
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db   = firebase.firestore();
+const googleProvider = new firebase.auth.GoogleAuthProvider();
+
+// Firestore 저장/불러오기
+async function cloudLoad(uid) {
+  try {
+    const snap = await db.collection("users").doc(uid).get();
+    return snap.exists ? snap.data() : null;
+  } catch(e) { console.error("load error", e); return null; }
+}
+function cloudSave(uid, data) {
+  db.collection("users").doc(uid).set(data).catch(e => console.error("save error", e));
+}
+
+// ─── 상수 ──────────────────────────────────────────
 const TYPES   = ["Red","White","Rosé","Sparkling","Orange"];
 const T_LABEL = {Red:"레드",White:"화이트",Rosé:"로제",Sparkling:"스파클링",Orange:"오렌지"};
 const T_HUE   = {Red:"#7B1728",White:"#A87E10",Rosé:"#B84060",Sparkling:"#1E8E84",Orange:"#A84810"};
 const T_CHART = ["#8B2030","#C4A020","#D4607A","#2EA49A","#C06028"];
-const MAT = {
+const MAT_CFG = {
   "어린 와인":{color:"#E8922A",bg:"rgba(232,146,42,.12)",dot:"#E8922A",sym:"!"},
   "숙성됨":   {color:"#34A853",bg:"rgba(52,168,83,.12)", dot:"#34A853",sym:"✓"},
   "최고점":   {color:"#34A853",bg:"rgba(52,168,83,.12)", dot:"#34A853",sym:"✓"},
@@ -47,61 +68,56 @@ const MAT = {
 };
 const MAT_ORDER = ["어린 와인","숙성됨","최고점","감퇴"];
 const CY = new Date().getFullYear();
-const WINE_APIs = [
+const WINE_APIS = [
   {url:"https://api.sampleapis.com/wines/reds",      type:"Red"},
   {url:"https://api.sampleapis.com/wines/whites",    type:"White"},
   {url:"https://api.sampleapis.com/wines/sparkling", type:"Sparkling"},
   {url:"https://api.sampleapis.com/wines/rose",      type:"Rosé"},
-  {url:"https://api.sampleapis.com/wines/port",      type:"Sparkling"},
+];
+const SAMPLE = [
+  {id:1,producer:"Textbook",name:"Cabernet Sauvignon",vintage:"2023",region:"Napa Valley",country:"USA",type:"Red",grapes:"Cabernet Sauvignon",volume:"75cl",purchasePrice:72000,quantity:1,notes:"어린 카베르네",addedAt:"2024.03.15",maturity:"어린 와인",imageUrl:""},
+  {id:2,producer:"Thorn-Clarke",name:"Shotfire GSM",vintage:"2020",region:"Barossa Valley",country:"Australia",type:"Red",grapes:"Grenache, Shiraz, Mourvèdre",volume:"75cl",purchasePrice:55000,quantity:1,notes:"복합적인 블렌드",addedAt:"2024.01.20",maturity:"숙성됨",imageUrl:""},
+  {id:3,producer:"Veuve Clicquot",name:"Yellow Label Brut",vintage:"NV",region:"Champagne",country:"France",type:"Sparkling",grapes:"Chardonnay, Pinot Noir",volume:"75cl",purchasePrice:95000,quantity:1,notes:"우아한 샴페인",addedAt:"2024.02.14",maturity:"숙성됨",imageUrl:""},
+  {id:4,producer:"Penfolds",name:"Bin 389",vintage:"2019",region:"South Australia",country:"Australia",type:"Red",grapes:"Cabernet Sauvignon, Shiraz",volume:"75cl",purchasePrice:148000,quantity:1,notes:"Baby Grange",addedAt:"2023.12.25",maturity:"최고점",imageUrl:""},
 ];
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-function calcMat(type,vintage,region=""){
-  const yr=parseInt(vintage); if(!yr) return "어린 와인";
-  const age=CY-yr;
-  const p=/bordeaux|burgundy|napa|barossa|tuscany|rioja|champagne|rhone|ribera/i.test(region);
-  const w=({Red:p?[5,9,18,26]:[2,4,10,15],White:p?[2,5,12,18]:[1,2,6,9],
-    Sparkling:[2,4,12,18],Rosé:[0,1,3,5],Orange:[1,2,6,10]})[type]||[2,4,10,15];
+// ─── 유틸 ──────────────────────────────────────────
+function calcMat(type, vintage, region="") {
+  const yr = parseInt(vintage); if (!yr) return "어린 와인";
+  const age = CY - yr;
+  const p = /bordeaux|burgundy|napa|barossa|tuscany|rioja|champagne|rhone/i.test(region);
+  const w = ({Red:p?[5,9,18,26]:[2,4,10,15],White:p?[2,5,12,18]:[1,2,6,9],Sparkling:[2,4,12,18],Rosé:[0,1,3,5],Orange:[1,2,6,10]})[type]||[2,4,10,15];
   if(age<=w[1]) return "어린 와인";
   if(age<=w[2]) return "숙성됨";
   if(age<=w[3]) return "최고점";
   return "감퇴";
 }
-function drinkWin(type,vintage,region=""){
-  const yr=parseInt(vintage); if(!yr) return "정보 없음";
-  const p=/bordeaux|burgundy|napa|barossa|tuscany|rioja|champagne|rhone/i.test(region);
-  const r=({Red:p?[5,18]:[2,10],White:p?[2,12]:[1,6],Sparkling:[2,12],Rosé:[1,3],Orange:[1,6]})[type]||[2,10];
+function drinkWin(type, vintage, region="") {
+  const yr = parseInt(vintage); if (!yr) return "정보 없음";
+  const p = /bordeaux|burgundy|napa|barossa|tuscany|rioja|champagne|rhone/i.test(region);
+  const r = ({Red:p?[5,18]:[2,10],White:p?[2,12]:[1,6],Sparkling:[2,12],Rosé:[1,3],Orange:[1,6]})[type]||[2,10];
   return `${yr+r[0]}–${yr+r[1]}`;
 }
 
-// ─── localStorage ─────────────────────────────────────────────────────────────
-const LS = {
-  get:(k,def=null)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):def}catch{return def}},
-  set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v))}catch{}},
-};
-
-// ─── Wine DB (sampleapis.com – free, no auth) ─────────────────────────────────
-let _dbCache=null, _dbLoading=false, _dbCbs=[];
-async function loadDB(){
-  if(_dbCache) return _dbCache;
-  if(_dbLoading) return new Promise(r=>_dbCbs.push(r));
-  _dbLoading=true;
+// ─── 와인 DB ────────────────────────────────────────
+let _db=null, _loading=false, _cbs=[];
+async function loadDB() {
+  if(_db) return _db;
+  if(_loading) return new Promise(r=>_cbs.push(r));
+  _loading=true;
   const list=[];
-  await Promise.allSettled(WINE_APIs.map(async({url,type})=>{
+  await Promise.allSettled(WINE_APIS.map(async({url,type})=>{
     try{
       const d=await(await fetch(url)).json();
       if(Array.isArray(d)) d.forEach(w=>{
         if(w&&w.wine&&w.winery){
           const [region="",country=""]=(w.location||"").split(",").map(s=>s.trim());
-          list.push({_id:`api-${type}-${w.id}`,producer:w.winery,name:w.wine,
-            region,country,type,imageUrl:w.image||"",
-            apiRating:w.rating?.average||""});
+          list.push({_id:`${type}-${w.id}`,producer:w.winery,name:w.wine,region,country,type,imageUrl:w.image||"",apiRating:w.rating?.average||""});
         }
       });
     }catch{}
   }));
-  _dbCache=list; _dbLoading=false;
-  _dbCbs.forEach(r=>r(list)); _dbCbs=[];
+  _db=list; _loading=false; _cbs.forEach(r=>r(list)); _cbs=[];
   return list;
 }
 function searchDB(db,q){
@@ -110,62 +126,29 @@ function searchDB(db,q){
   return db.filter(w=>w.name.toLowerCase().includes(lq)||w.producer.toLowerCase().includes(lq)||w.region.toLowerCase().includes(lq)).slice(0,10);
 }
 
-// ─── Anthropic API (label scan) ───────────────────────────────────────────────
-async function scanLabel(b64,mt,apiKey){
-  if(!apiKey) return {};
-  try{
-    const r=await fetch("https://api.anthropic.com/v1/messages",{
-      method:"POST",
-      headers:{"Content-Type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
-      body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:800,
-        messages:[{role:"user",content:[
-          {type:"image",source:{type:"base64",media_type:mt,data:b64}},
-          {type:"text",text:`Analyze wine label. Return ONLY valid JSON no markdown:
-{"producer":"","name":"","vintage":"","region":"","country":"","type":"Red","grapes":"","volume":"75cl","notes":""}
-type: Red/White/Rosé/Sparkling/Orange`},
-        ]}]}),
-    });
-    const d=await r.json();
-    return JSON.parse((d.content?.[0]?.text||"{}").replace(/\`\`\`[a-z]*|\`\`\`/g,"").trim());
-  }catch{return {};}
-}
-
-// ─── SVG Donut Chart (no recharts) ────────────────────────────────────────────
-function DonutChart({data,size=220}){
-  const cx=size/2,cy=size/2,r=size*0.36,sw=size*0.155;
-  const C=2*Math.PI*r;
+// ─── Donut SVG ──────────────────────────────────────
+function DonutChart({data, size=210}) {
+  const cx=size/2, cy=size/2, r=size*0.36, sw=size*0.155, C=2*Math.PI*r;
   const total=data.reduce((s,d)=>s+d.value,0);
   let angle=0;
-  const segs=data.filter(d=>d.value>0).map(d=>{
-    const frac=d.value/total,seg={...d,frac,sa:angle};
-    angle+=frac*360; return seg;
-  });
-  return (
+  const segs=data.filter(d=>d.value>0).map(d=>{const seg={...d,frac:d.value/total,sa:angle};angle+=seg.frac*360;return seg;});
+  return(
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
       <circle cx={cx} cy={cy} r={r} fill="none" stroke="#EEE9E4" strokeWidth={sw}/>
-      {segs.map((s,i)=>(
-        <circle key={i} cx={cx} cy={cy} r={r} fill="none" stroke={s.color} strokeWidth={sw}
-          strokeDasharray={`${s.frac*C} ${C}`}
-          transform={`rotate(${s.sa-90},${cx},${cy})`}/>
-      ))}
-      <text x={cx} y={cy-5} textAnchor="middle" fontSize="28" fontWeight="700" fill="#1C1C1E">{total}</text>
+      {segs.map((s,i)=><circle key={i} cx={cx} cy={cy} r={r} fill="none" stroke={s.color} strokeWidth={sw} strokeDasharray={`${s.frac*C} ${C}`} transform={`rotate(${s.sa-90},${cx},${cy})`}/>)}
+      <text x={cx} y={cy-4} textAnchor="middle" fontSize="28" fontWeight="700" fill="#1C1C1E">{total}</text>
       <text x={cx} y={cy+17} textAnchor="middle" fontSize="13" fill="#8A8A8E">병</text>
     </svg>
   );
 }
 
-// ─── UI Components ────────────────────────────────────────────────────────────
-function MatBadge({mat}){
-  const c=MAT[mat]||MAT["어린 와인"];
-  return(
-    <span style={{display:"inline-flex",alignItems:"center",gap:5,background:c.bg,color:c.color,fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:20}}>
-      {mat}
-      <span style={{width:14,height:14,borderRadius:"50%",background:c.dot,color:"#fff",fontSize:9,fontWeight:900,display:"inline-flex",alignItems:"center",justifyContent:"center"}}>{c.sym}</span>
-    </span>
-  );
+// ─── UI 컴포넌트 ────────────────────────────────────
+function MatBadge({mat}) {
+  const c=MAT_CFG[mat]||MAT_CFG["어린 와인"];
+  return <span style={{display:"inline-flex",alignItems:"center",gap:5,background:c.bg,color:c.color,fontSize:11,fontWeight:700,padding:"3px 10px",borderRadius:20}}>{mat}<span style={{width:14,height:14,borderRadius:"50%",background:c.dot,color:"#fff",fontSize:9,fontWeight:900,display:"inline-flex",alignItems:"center",justifyContent:"center"}}>{c.sym}</span></span>;
 }
 
-function WineImg({url,wine,size=90}){
+function WineImg({url, wine, size=90}) {
   const [fail,setFail]=useState(false);
   const col=T_HUE[wine?.type]||"#7B1728";
   if(!url||fail) return(
@@ -185,12 +168,12 @@ function WineImg({url,wine,size=90}){
     <div style={{width:size,minHeight:size*1.22,borderRadius:10,flexShrink:0,overflow:"hidden",background:col,position:"relative",display:"flex",alignItems:"center",justifyContent:"center"}}>
       <div style={{position:"absolute",top:6,left:6,background:"rgba(0,0,0,.55)",color:"#fff",fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:6,zIndex:2}}>{wine?.vintage||"NV"}</div>
       <div style={{position:"absolute",top:6,right:6,background:"rgba(0,0,0,.55)",color:"#fff",fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:6,zIndex:2}}>x{wine?.quantity||1}</div>
-      <img src={url} alt={wine?.name} onError={()=>setFail(true)} style={{width:"72%",height:"90%",objectFit:"contain",zIndex:1,padding:"4px 0"}}/>
+      <img src={url} alt="" onError={()=>setFail(true)} style={{width:"72%",height:"90%",objectFit:"contain",zIndex:1,padding:"4px 0"}}/>
     </div>
   );
 }
 
-function WineCard({wine,onClick}){
+function WineCard({wine, onClick}) {
   return(
     <div onClick={()=>onClick(wine)} style={{background:"#fff",borderRadius:14,marginBottom:12,border:"1px solid #E8E4DE",overflow:"hidden",cursor:"pointer"}}>
       <div style={{display:"flex",gap:14,padding:"14px 16px 12px"}}>
@@ -200,8 +183,7 @@ function WineCard({wine,onClick}){
           <div style={{fontSize:16,fontWeight:700,color:"#1C1C1E",marginBottom:4,lineHeight:1.3}}>{wine.name}</div>
           <div style={{fontSize:12,color:"#8A8A8E",marginBottom:9}}>{[wine.region,wine.country].filter(Boolean).join(", ")}</div>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:6}}>
-            <MatBadge mat={wine.maturity}/>
-            <span style={{fontSize:12,color:"#8A8A8E"}}>{wine.volume||"75cl"}</span>
+            <MatBadge mat={wine.maturity}/><span style={{fontSize:12,color:"#8A8A8E"}}>{wine.volume||"75cl"}</span>
           </div>
           {wine.grapes&&<div style={{fontSize:11,color:"#AEAAB0",marginTop:5}}>{wine.grapes}</div>}
         </div>
@@ -214,7 +196,7 @@ function WineCard({wine,onClick}){
   );
 }
 
-function ConsumedCard({wine}){
+function ConsumedCard({wine}) {
   return(
     <div style={{background:"#fff",borderRadius:14,marginBottom:10,border:"1px solid #E8E4DE",overflow:"hidden",opacity:.88}}>
       <div style={{display:"flex",gap:12,padding:"12px 14px"}}>
@@ -234,81 +216,70 @@ function ConsumedCard({wine}){
   );
 }
 
-// ─── Sheet wrapper ────────────────────────────────────────────────────────────
-function Sheet({onClose,children,maxH="93vh"}){
+function Sheet({onClose, children}) {
   return(
     <div onClick={onClose} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.5)",display:"flex",alignItems:"flex-end",zIndex:200}}>
-      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:"20px 20px 0 0",width:"100%",maxWidth:430,margin:"0 auto",maxHeight:maxH,overflowY:"auto",padding:"22px 20px 50px"}}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#fff",borderRadius:"20px 20px 0 0",width:"100%",maxWidth:430,margin:"0 auto",maxHeight:"93vh",overflowY:"auto",padding:"22px 20px 50px"}}>
         {children}
       </div>
     </div>
   );
 }
+const INP = {width:"100%",boxSizing:"border-box",background:"#F6F4F0",border:"1px solid #DDD9D3",borderRadius:10,padding:"11px 13px",color:"#1C1C1E",fontSize:15,outline:"none",marginBottom:10};
 
-const INP={width:"100%",boxSizing:"border-box",background:"#F6F4F0",border:"1px solid #DDD9D3",borderRadius:10,padding:"11px 13px",color:"#1C1C1E",fontSize:15,outline:"none",marginBottom:10};
+// ─── 로그인 화면 ────────────────────────────────────
+function LoginScreen({onLogin, loading, error}) {
+  return(
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"#F4F2EF",padding:"40px 30px",textAlign:"center"}}>
+      <div style={{fontSize:64,marginBottom:16}}>🍷</div>
+      <div style={{fontSize:28,fontWeight:800,color:"#1C1C1E",marginBottom:8}}>My Wine Cellar</div>
+      <div style={{fontSize:14,color:"#8A8A8E",marginBottom:48,lineHeight:1.7}}>나만의 와인 셀러를 관리하세요<br/>구글 계정으로 모든 기기에서 동기화됩니다</div>
+      {error&&<div style={{background:"rgba(212,72,90,.1)",color:"#D4485A",borderRadius:12,padding:"10px 16px",marginBottom:20,fontSize:13}}>{error}</div>}
+      <button onClick={onLogin} disabled={loading} style={{display:"flex",alignItems:"center",gap:12,background:"#fff",border:"1.5px solid #E0DCD6",borderRadius:14,padding:"14px 28px",cursor:loading?"default":"pointer",fontSize:15,fontWeight:700,color:"#1C1C1E",boxShadow:"0 2px 12px rgba(0,0,0,.08)",opacity:loading?0.7:1}}>
+        <svg width="20" height="20" viewBox="0 0 24 24">
+          <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+          <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+          <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+          <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+        </svg>
+        {loading?"로그인 중...":"Google로 로그인"}
+      </button>
+      <div style={{fontSize:11,color:"#AEAAB0",marginTop:32,lineHeight:1.7}}>로그인 시 와인 데이터가 구글 계정에 저장됩니다<br/>기기가 달라도 자동으로 동기화됩니다</div>
+    </div>
+  );
+}
 
-// ─── Add Wine Modal ───────────────────────────────────────────────────────────
+// ─── 와인 추가 모달 ─────────────────────────────────
 const EMPTY={producer:"",name:"",vintage:"",region:"",country:"",type:"Red",grapes:"",volume:"75cl",purchasePrice:"",quantity:"1",notes:"",imageUrl:""};
 
-function AddModal({onClose,onAdd,apiKey}){
+function AddModal({onClose, onAdd}) {
   const [step,setStep]=useState("choose");
   const [form,setForm]=useState(EMPTY);
-  const [scanning,setScanning]=useState(false);
   const [dbLoading,setDbLoading]=useState(false);
-  const [db,setDb]=useState(null);
   const [query,setQuery]=useState("");
   const [results,setResults]=useState([]);
-  const [scanPrev,setScanPrev]=useState(null);
-  const fileRef=useRef();
   const dbRef=useRef(null);
 
   const getDB=async()=>{
     if(dbRef.current) return dbRef.current;
     setDbLoading(true);
     const data=await loadDB();
-    dbRef.current=data; setDb(data); setDbLoading(false);
+    dbRef.current=data; setDbLoading(false);
     return data;
   };
-
-  const handleSearch=useCallback(async(q)=>{
-    if(q.length<2){setResults([]);return;}
-    const data=dbRef.current||await getDB();
-    setResults(searchDB(data,q));
-  },[]);
-
   useEffect(()=>{
-    const t=setTimeout(()=>handleSearch(query),350);
+    const t=setTimeout(async()=>{
+      if(query.length<2){setResults([]);return;}
+      const data=dbRef.current||await getDB();
+      setResults(searchDB(data,query));
+    },350);
     return()=>clearTimeout(t);
   },[query]);
 
-  const pickFromDB=w=>{
-    setForm(f=>({...f,producer:w.producer,name:w.name,region:w.region,country:w.country,type:w.type,imageUrl:w.imageUrl}));
-    setStep("form");
-  };
-
-  const handleFile=async e=>{
-    const file=e.target.files?.[0]; if(!file) return;
-    setScanPrev(URL.createObjectURL(file));
-    setStep("form"); setScanning(true);
-    const reader=new FileReader();
-    reader.onload=async ev=>{
-      const b64=ev.target.result.split(",")[1],mt=file.type||"image/jpeg";
-      const result=await scanLabel(b64,mt,apiKey);
-      setForm(f=>({...f,...Object.fromEntries(Object.entries(result).filter(([,v])=>v))}));
-      const data=dbRef.current||await getDB();
-      const hits=searchDB(data,(result.name||result.producer||""));
-      if(hits[0]?.imageUrl) setForm(f=>({...f,imageUrl:hits[0].imageUrl}));
-      setScanning(false);
-    };
-    reader.readAsDataURL(file);
-  };
-
+  const pick=w=>{setForm(f=>({...f,producer:w.producer,name:w.name,region:w.region,country:w.country,type:w.type,imageUrl:w.imageUrl}));setStep("form");};
   const doAdd=()=>{
     if(!form.name.trim()) return;
-    onAdd({...form,id:Date.now(),purchasePrice:parseFloat(form.purchasePrice)||0,
-      quantity:parseInt(form.quantity)||1,
-      maturity:calcMat(form.type,form.vintage,`${form.region} ${form.country}`),
-      addedAt:new Date().toLocaleDateString("ko-KR")});
+    onAdd({...form,id:Date.now(),purchasePrice:parseFloat(form.purchasePrice)||0,quantity:parseInt(form.quantity)||1,maturity:calcMat(form.type,form.vintage,`${form.region} ${form.country}`),addedAt:new Date().toLocaleDateString("ko-KR")});
     onClose();
   };
 
@@ -318,60 +289,46 @@ function AddModal({onClose,onAdd,apiKey}){
         <div style={{fontSize:20,fontWeight:700,marginBottom:6}}>와인 추가</div>
         <div style={{fontSize:13,color:"#8A8A8E",marginBottom:24}}>방법을 선택하세요</div>
         <button onClick={()=>{setStep("search");getDB();}} style={{width:"100%",background:"#1C1C1E",border:"none",borderRadius:14,padding:"16px",color:"#fff",fontSize:15,fontWeight:700,cursor:"pointer",marginBottom:12}}>
-          🔍  와인 DB 검색 <span style={{fontSize:11,opacity:.7,fontWeight:400}}>(2,000+ 와인 + 이미지)</span>
-        </button>
-        <button onClick={()=>fileRef.current?.click()} style={{width:"100%",background:"#2C2C2C",border:"none",borderRadius:14,padding:"16px",color:"#fff",fontSize:15,fontWeight:700,cursor:"pointer",marginBottom:12}}>
-          📷  라벨 스캔 (AI 자동 인식){!apiKey&&<span style={{fontSize:11,opacity:.6}}> — API 키 필요</span>}
+          🔍  와인 DB 검색 <span style={{fontSize:11,opacity:.7,fontWeight:400}}>(2,000+ 와인)</span>
         </button>
         <button onClick={()=>setStep("form")} style={{width:"100%",background:"#F6F4F0",border:"1px solid #DDD9D3",borderRadius:14,padding:"16px",color:"#1C1C1E",fontSize:15,fontWeight:600,cursor:"pointer"}}>
           ✏️  직접 입력
         </button>
-        <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{display:"none"}}/>
       </>}
-
       {step==="search"&&<>
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:18}}>
           <button onClick={()=>setStep("choose")} style={{background:"none",border:"none",cursor:"pointer",fontSize:22,color:"#8A8A8E",padding:0}}>←</button>
           <div style={{fontSize:18,fontWeight:700}}>와인 검색</div>
         </div>
-        {dbLoading&&<div style={{textAlign:"center",padding:"24px 0",color:"#8A8A8E",fontSize:13}}>🍷 데이터베이스 로딩 중...</div>}
+        {dbLoading&&<div style={{textAlign:"center",padding:"20px",color:"#8A8A8E",fontSize:13}}>🍷 로딩 중...</div>}
         <div style={{position:"relative",marginBottom:12}}>
-          <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="와인 이름, 와이너리, 지역..."
-            style={{...INP,paddingLeft:38,marginBottom:0}}/>
+          <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="와인 이름, 와이너리, 지역..." style={{...INP,paddingLeft:38,marginBottom:0}}/>
           <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",color:"#8A8A8E",fontSize:14}}>🔍</span>
         </div>
-        {query.length>=2&&results.length===0&&!dbLoading&&<div style={{textAlign:"center",padding:"16px 0",color:"#8A8A8E",fontSize:13}}>검색 결과 없음</div>}
+        {query.length>=2&&results.length===0&&!dbLoading&&<div style={{textAlign:"center",padding:"16px",color:"#8A8A8E",fontSize:13}}>검색 결과 없음</div>}
         {results.map((w,i)=>(
-          <div key={i} onClick={()=>pickFromDB(w)} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 12px",borderRadius:12,border:"1px solid #E8E4DE",marginBottom:8,cursor:"pointer",background:"#fff"}}>
-            {w.imageUrl
-              ?<img src={w.imageUrl} onError={e=>e.target.style.display="none"} style={{width:44,height:60,objectFit:"contain",borderRadius:6,flexShrink:0}}/>
-              :<div style={{width:44,height:60,background:T_HUE[w.type]||"#7B1728",borderRadius:6,flexShrink:0}}/>}
+          <div key={i} onClick={()=>pick(w)} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 12px",borderRadius:12,border:"1px solid #E8E4DE",marginBottom:8,cursor:"pointer",background:"#fff"}}>
+            {w.imageUrl?<img src={w.imageUrl} onError={e=>e.target.style.display="none"} style={{width:44,height:60,objectFit:"contain",borderRadius:6,flexShrink:0}}/>:<div style={{width:44,height:60,background:T_HUE[w.type]||"#7B1728",borderRadius:6,flexShrink:0}}/>}
             <div style={{flex:1,minWidth:0}}>
               <div style={{fontSize:12,color:"#8A8A8E",marginBottom:2}}>{w.producer}</div>
-              <div style={{fontSize:14,fontWeight:700,color:"#1C1C1E",marginBottom:3,lineHeight:1.3}}>{w.name}</div>
-              <div style={{display:"flex",alignItems:"center",gap:8}}>
+              <div style={{fontSize:14,fontWeight:700,color:"#1C1C1E",lineHeight:1.3,marginBottom:3}}>{w.name}</div>
+              <div style={{display:"flex",alignItems:"center",gap:7}}>
                 <span style={{fontSize:11,color:"#8A8A8E"}}>{[w.region,w.country].filter(Boolean).join(", ")}</span>
                 <span style={{fontSize:10,color:T_HUE[w.type]||"#7B1728",fontWeight:600,background:`${T_HUE[w.type]||"#7B1728"}18`,padding:"1px 7px",borderRadius:10}}>{T_LABEL[w.type]||w.type}</span>
               </div>
             </div>
-            {w.apiRating&&<div style={{textAlign:"center",flexShrink:0}}><div style={{fontSize:15,color:"#D4A040"}}>★</div><div style={{fontSize:12,fontWeight:600}}>{w.apiRating}</div></div>}
+            {w.apiRating&&<div style={{textAlign:"center",flexShrink:0}}><div style={{fontSize:14,color:"#D4A040"}}>★</div><div style={{fontSize:12,fontWeight:600}}>{w.apiRating}</div></div>}
           </div>
         ))}
       </>}
-
       {step==="form"&&<>
         <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:16}}>
           <button onClick={()=>setStep("choose")} style={{background:"none",border:"none",cursor:"pointer",fontSize:22,color:"#8A8A8E",padding:0}}>←</button>
-          <div style={{fontSize:18,fontWeight:700}}>{scanning?"🔍 라벨 인식 중...":"와인 정보"}</div>
+          <div style={{fontSize:18,fontWeight:700}}>와인 정보</div>
         </div>
-        {scanning&&<div style={{background:"#F6F4F0",borderRadius:12,padding:"12px 16px",marginBottom:14,textAlign:"center",color:"#8A8A8E",fontSize:13}}>AI가 라벨을 분석하고 있습니다...</div>}
-        {scanPrev&&!scanning&&<div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14,padding:"10px 12px",background:"#F6F4F0",borderRadius:12}}>
-          <img src={scanPrev} style={{width:48,height:64,objectFit:"cover",borderRadius:8}}/>
-          <div style={{fontSize:12,color:"#34A853",fontWeight:600}}>라벨 인식 완료! 내용을 확인하세요.</div>
-        </div>}
         {form.imageUrl&&<div style={{display:"flex",alignItems:"center",gap:12,marginBottom:14,padding:"10px 12px",background:"#F6F4F0",borderRadius:12}}>
           <img src={form.imageUrl} onError={e=>e.target.style.display="none"} style={{width:38,height:54,objectFit:"contain"}}/>
-          <div><div style={{fontSize:12,color:"#34A853",fontWeight:600}}>와인 이미지 자동 연결됨</div><div style={{fontSize:11,color:"#8A8A8E",marginTop:2}}>DB에서 가져왔습니다</div></div>
+          <div style={{fontSize:12,color:"#34A853",fontWeight:600}}>이미지 자동 연결됨</div>
         </div>}
         <input value={form.producer} onChange={e=>setForm({...form,producer:e.target.value})} placeholder="생산자 / 와이너리" style={INP}/>
         <input value={form.name} onChange={e=>setForm({...form,name:e.target.value})} placeholder="와인 이름 *" style={INP}/>
@@ -387,9 +344,7 @@ function AddModal({onClose,onAdd,apiKey}){
         <div style={{marginBottom:12}}>
           <div style={{fontSize:12,color:"#8A8A8E",marginBottom:8}}>타입</div>
           <div style={{display:"flex",gap:7,flexWrap:"wrap"}}>
-            {TYPES.map(t=>{const sel=form.type===t;return(
-              <button key={t} onClick={()=>setForm({...form,type:t})} style={{borderRadius:20,padding:"6px 14px",fontSize:12,fontWeight:600,cursor:"pointer",border:sel?`1.5px solid ${T_HUE[t]}`:"1px solid #DDD9D3",background:sel?`${T_HUE[t]}18`:"transparent",color:sel?T_HUE[t]:"#8A8A8E"}}>{T_LABEL[t]}</button>
-            );})}
+            {TYPES.map(t=>{const sel=form.type===t;return<button key={t} onClick={()=>setForm({...form,type:t})} style={{borderRadius:20,padding:"6px 14px",fontSize:12,fontWeight:600,cursor:"pointer",border:sel?`1.5px solid ${T_HUE[t]}`:"1px solid #DDD9D3",background:sel?`${T_HUE[t]}18`:"transparent",color:sel?T_HUE[t]:"#8A8A8E"}}>{T_LABEL[t]}</button>;})}
           </div>
         </div>
         <div style={{display:"flex",gap:8}}>
@@ -405,12 +360,12 @@ function AddModal({onClose,onAdd,apiKey}){
   );
 }
 
-// ─── Detail Modal ──────────────────────────────────────────────────────────────
-function DetailModal({wine,onClose,onDrink,onDelete}){
+// ─── 상세 모달 ──────────────────────────────────────
+function DetailModal({wine, onClose, onDrink, onDelete}) {
   const [note,setNote]=useState("");
-  const [rating,setRating]=useState(wine.rating||0);
+  const [rating,setRating]=useState(0);
   const [conf,setConf]=useState(false);
-  const cfg=MAT[wine.maturity]||MAT["어린 와인"];
+  const cfg=MAT_CFG[wine.maturity]||MAT_CFG["어린 와인"];
   const rows=[["빈티지",wine.vintage||"정보 없음"],["품종",wine.grapes||"정보 없음"],["용량",wine.volume||"75cl"],["수량",`${wine.quantity||1}병`],["구매가",wine.purchasePrice?`${Number(wine.purchasePrice).toLocaleString()}원`:"--"],["음용 적기",drinkWin(wine.type,wine.vintage,wine.region)],["추가일",wine.addedAt||"--"]];
   return(
     <Sheet onClose={onClose}>
@@ -433,7 +388,7 @@ function DetailModal({wine,onClose,onDrink,onDelete}){
         {wine.notes&&<div style={{background:"#F6F4F0",borderRadius:10,padding:"10px 13px",marginTop:12,fontSize:13,color:"#5C5C60",fontStyle:"italic"}}>"{wine.notes}"</div>}
         <div style={{display:"flex",gap:10,marginTop:20}}>
           <button onClick={()=>setConf(true)} style={{flex:1,background:cfg.bg,border:`1.5px solid ${cfg.dot}`,borderRadius:12,padding:"13px",color:cfg.color,fontSize:14,fontWeight:700,cursor:"pointer"}}>마셨어요 🍷</button>
-          <button onClick={()=>{if(window.confirm(`'${wine.name}'을(를) 삭제하시겠습니까?`)) onDelete();}} style={{background:"#F6F4F0",border:"1px solid #DDD9D3",borderRadius:12,padding:"13px 16px",color:"#8A8A8E",fontSize:18,cursor:"pointer"}}>🗑</button>
+          <button onClick={()=>{if(window.confirm(`'${wine.name}' 삭제?`)) onDelete();}} style={{background:"#F6F4F0",border:"1px solid #DDD9D3",borderRadius:12,padding:"13px 16px",color:"#8A8A8E",fontSize:18,cursor:"pointer"}}>🗑</button>
         </div>
       </>:<>
         <div style={{fontSize:18,fontWeight:700,marginBottom:4}}>테이스팅 기록</div>
@@ -449,33 +404,12 @@ function DetailModal({wine,onClose,onDrink,onDelete}){
   );
 }
 
-// ─── Settings Modal ────────────────────────────────────────────────────────────
-function SettingsModal({onClose,apiKey,setApiKey}){
-  const [key,setKey]=useState(apiKey||"");
-  const save=()=>{LS.set("wc-apikey",key);setApiKey(key);onClose();};
-  return(
-    <Sheet onClose={onClose}>
-      <div style={{fontSize:20,fontWeight:700,marginBottom:6}}>설정 ⚙️</div>
-      <div style={{fontSize:13,color:"#8A8A8E",marginBottom:20,lineHeight:1.6}}>라벨 스캔을 사용하려면 Anthropic API 키가 필요합니다.<br/>키는 기기의 로컬 저장소에만 저장됩니다.</div>
-      <div style={{fontSize:12,color:"#8A8A8E",marginBottom:8}}>Anthropic API 키</div>
-      <input value={key} onChange={e=>setKey(e.target.value)} placeholder="sk-ant-..." type="password" style={INP}/>
-      <div style={{fontSize:11,color:"#8A8A8E",marginBottom:20,lineHeight:1.5}}>
-        👉 <a href="https://console.anthropic.com" target="_blank" style={{color:"#C07840"}}>console.anthropic.com</a>에서 발급<br/>
-        ⚠️ GitHub Pages가 공개 저장소라면 키가 노출될 수 있으니 비공개로 운영하세요.
-      </div>
-      <button onClick={save} style={{width:"100%",background:"#1C1C1E",border:"none",borderRadius:14,padding:"14px",color:"#fff",fontSize:15,fontWeight:700,cursor:"pointer"}}>저장</button>
-      {apiKey&&<button onClick={()=>{LS.set("wc-apikey","");setApiKey("");onClose();}} style={{width:"100%",background:"none",border:"1px solid #DDD9D3",borderRadius:14,padding:"13px",color:"#8A8A8E",fontSize:14,cursor:"pointer",marginTop:10}}>API 키 삭제</button>}
-    </Sheet>
-  );
-}
-
-// ─── Stats Page ────────────────────────────────────────────────────────────────
-function StatsPage({wines,tab,setTab}){
+// ─── 통계 페이지 ────────────────────────────────────
+function StatsPage({wines, tab, setTab}) {
   const cnt=Object.fromEntries(MAT_ORDER.map(m=>[m,wines.filter(w=>w.maturity===m).length]));
   const total=wines.length;
   const typeData=TYPES.map((t,i)=>({name:T_LABEL[t],value:wines.filter(w=>w.type===t).length,color:T_CHART[i]})).filter(d=>d.value>0);
-  const matData=MAT_ORDER.map(m=>({name:m,value:cnt[m],color:MAT[m].dot})).filter(d=>d.value>0);
-  const chart=tab==="composition"?typeData:matData;
+  const matData=MAT_ORDER.map(m=>({name:m,value:cnt[m],color:MAT_CFG[m].dot})).filter(d=>d.value>0);
   const totalVal=wines.reduce((s,w)=>s+(parseFloat(w.purchasePrice)||0)*(parseInt(w.quantity)||1),0);
   return(
     <div style={{padding:"0 20px 110px"}}>
@@ -486,64 +420,42 @@ function StatsPage({wines,tab,setTab}){
       </div>
       {tab!=="financial"&&<>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:18}}>
-          {MAT_ORDER.map(m=>{const c=MAT[m];return(
+          {MAT_ORDER.map(m=>{const c=MAT_CFG[m];return(
             <div key={m} style={{background:"#fff",borderRadius:14,padding:"16px 18px",border:"1px solid #E8E4DE"}}>
-              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8}}>
-                <span style={{fontSize:13}}>{m}</span>
-                <span style={{width:15,height:15,borderRadius:"50%",background:c.dot,color:"#fff",fontSize:8,fontWeight:900,display:"inline-flex",alignItems:"center",justifyContent:"center"}}>{c.sym}</span>
-              </div>
-              <div style={{display:"flex",alignItems:"baseline",gap:4}}>
-                <span style={{fontSize:30,fontWeight:700}}>{cnt[m]}</span>
-                <span style={{fontSize:14,color:"#8A8A8E"}}>병</span>
-              </div>
+              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8}}><span style={{fontSize:13}}>{m}</span><span style={{width:15,height:15,borderRadius:"50%",background:c.dot,color:"#fff",fontSize:8,fontWeight:900,display:"inline-flex",alignItems:"center",justifyContent:"center"}}>{c.sym}</span></div>
+              <div style={{display:"flex",alignItems:"baseline",gap:4}}><span style={{fontSize:30,fontWeight:700}}>{cnt[m]}</span><span style={{fontSize:14,color:"#8A8A8E"}}>병</span></div>
             </div>
           );})}
         </div>
         <div style={{background:"#fff",borderRadius:14,border:"1px solid #E8E4DE",padding:"20px 16px 16px"}}>
           <div style={{display:"flex",justifyContent:"center",marginBottom:12}}>
-            <DonutChart data={chart.length?chart:[{name:"없음",value:1,color:"#EEE9E4"}]}/>
+            <DonutChart data={(tab==="composition"?typeData:matData).length?(tab==="composition"?typeData:matData):[{name:"없음",value:1,color:"#EEE9E4"}]}/>
           </div>
           <div style={{display:"flex",flexWrap:"wrap",gap:10,justifyContent:"center"}}>
-            {chart.map((d,i)=>(
-              <div key={i} style={{display:"flex",alignItems:"center",gap:6,fontSize:12}}>
-                <div style={{width:9,height:9,borderRadius:"50%",background:d.color}}/>
-                {d.name} {d.value}병
-              </div>
-            ))}
+            {(tab==="composition"?typeData:matData).map((d,i)=><div key={i} style={{display:"flex",alignItems:"center",gap:6,fontSize:12}}><div style={{width:9,height:9,borderRadius:"50%",background:d.color}}/>{d.name} {d.value}병</div>)}
           </div>
         </div>
       </>}
       {tab==="financial"&&<>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14}}>
           {[["총 보유",`${total}병`],["총 구매가",totalVal?`${Math.round(totalVal/10000)}만원`:"--"],["평균가",total&&totalVal?`${Math.round(totalVal/total/1000)}천원`:"--"],["종류",`${[...new Set(wines.map(w=>w.type))].length}가지`]].map(([l,v])=>(
-            <div key={l} style={{background:"#fff",borderRadius:14,padding:"16px 18px",border:"1px solid #E8E4DE"}}>
-              <div style={{fontSize:12,color:"#8A8A8E",marginBottom:8}}>{l}</div>
-              <div style={{fontSize:20,fontWeight:700}}>{v}</div>
-            </div>
+            <div key={l} style={{background:"#fff",borderRadius:14,padding:"16px 18px",border:"1px solid #E8E4DE"}}><div style={{fontSize:12,color:"#8A8A8E",marginBottom:8}}>{l}</div><div style={{fontSize:20,fontWeight:700}}>{v}</div></div>
           ))}
         </div>
         <div style={{background:"#fff",borderRadius:14,padding:"18px",border:"1px solid #E8E4DE"}}>
           <div style={{fontSize:14,fontWeight:700,marginBottom:16}}>타입별 구성</div>
           {TYPES.map((t,i)=>{const c=wines.filter(w=>w.type===t).length;if(!c)return null;const p=total?Math.round(c/total*100):0;
-            return(<div key={t} style={{marginBottom:14}}>
-              <div style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:5}}><span>{T_LABEL[t]}</span><span style={{color:"#8A8A8E"}}>{c}병 ({p}%)</span></div>
-              <div style={{background:"#EEE9E4",borderRadius:6,height:7}}><div style={{background:T_CHART[i],width:`${p}%`,height:7,borderRadius:6}}/></div>
-            </div>);
+            return<div key={t} style={{marginBottom:14}}><div style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:5}}><span>{T_LABEL[t]}</span><span style={{color:"#8A8A8E"}}>{c}병 ({p}%)</span></div><div style={{background:"#EEE9E4",borderRadius:6,height:7}}><div style={{background:T_CHART[i],width:`${p}%`,height:7,borderRadius:6}}/></div></div>;
           })}
         </div>
       </>}
-      {tab==="maturation"&&MAT_ORDER.map(m=>{const ws=wines.filter(w=>w.maturity===m);const c=MAT[m];return(
+      {tab==="maturation"&&MAT_ORDER.map(m=>{const ws=wines.filter(w=>w.maturity===m);const c=MAT_CFG[m];return(
         <div key={m} style={{background:"#fff",borderRadius:14,padding:"16px 18px",border:"1px solid #E8E4DE",marginBottom:12}}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:ws.length?12:0}}>
             <div style={{display:"flex",alignItems:"center",gap:6}}><div style={{width:10,height:10,borderRadius:"50%",background:c.dot}}/><span style={{fontSize:14,fontWeight:700}}>{m}</span></div>
             <span style={{fontSize:13,color:"#8A8A8E"}}>{ws.length}병</span>
           </div>
-          {ws.slice(0,4).map(w=>(
-            <div key={w.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderTop:"1px solid #F0EDE8",fontSize:13}}>
-              <div><span style={{color:"#1C1C1E"}}>{w.name}</span><span style={{color:"#8A8A8E",marginLeft:8,fontSize:11}}>{w.vintage}</span></div>
-              <span style={{color:"#C07840",fontSize:11,fontWeight:600}}>{drinkWin(w.type,w.vintage,w.region)}</span>
-            </div>
-          ))}
+          {ws.slice(0,4).map(w=><div key={w.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderTop:"1px solid #F0EDE8",fontSize:13}}><div><span>{w.name}</span><span style={{color:"#8A8A8E",marginLeft:8,fontSize:11}}>{w.vintage}</span></div><span style={{color:"#C07840",fontSize:11,fontWeight:600}}>{drinkWin(w.type,w.vintage,w.region)}</span></div>)}
           {ws.length>4&&<div style={{fontSize:12,color:"#C07840",marginTop:6}}>+{ws.length-4}병 더...</div>}
         </div>
       );})}
@@ -551,68 +463,95 @@ function StatsPage({wines,tab,setTab}){
   );
 }
 
-// ─── Sample Data ───────────────────────────────────────────────────────────────
-const SAMPLE=[
-  {id:1,producer:"Textbook",name:"Cabernet Sauvignon",vintage:"2023",region:"Napa Valley",country:"USA",type:"Red",grapes:"Cabernet Sauvignon",volume:"75cl",purchasePrice:72000,quantity:1,notes:"어린 카베르네",addedAt:"2024.03.15",maturity:"어린 와인",imageUrl:""},
-  {id:2,producer:"Thorn-Clarke",name:"Shotfire GSM",vintage:"2020",region:"Barossa Valley",country:"Australia",type:"Red",grapes:"Grenache, Shiraz, Mourvèdre",volume:"75cl",purchasePrice:55000,quantity:1,notes:"복합적인 블렌드",addedAt:"2024.01.20",maturity:"숙성됨",imageUrl:""},
-  {id:3,producer:"Veuve Clicquot",name:"Yellow Label Brut",vintage:"NV",region:"Champagne",country:"France",type:"Sparkling",grapes:"Chardonnay, Pinot Noir",volume:"75cl",purchasePrice:95000,quantity:1,notes:"우아한 샴페인",addedAt:"2024.02.14",maturity:"숙성됨",imageUrl:""},
-  {id:4,producer:"Penfolds",name:"Bin 389",vintage:"2019",region:"South Australia",country:"Australia",type:"Red",grapes:"Cabernet Sauvignon, Shiraz",volume:"75cl",purchasePrice:148000,quantity:1,notes:"Baby Grange",addedAt:"2023.12.25",maturity:"최고점",imageUrl:""},
-  {id:5,producer:"Cloudy Bay",name:"Sauvignon Blanc",vintage:"2023",region:"Marlborough",country:"New Zealand",type:"White",grapes:"Sauvignon Blanc",volume:"75cl",purchasePrice:48000,quantity:2,notes:"패션프루트 향",addedAt:"2024.04.02",maturity:"어린 와인",imageUrl:""},
-];
-
-// ─── Main App ──────────────────────────────────────────────────────────────────
-function App(){
-  const [isShared,setIsShared]=useState(false);
+// ─── 메인 앱 ────────────────────────────────────────
+function App() {
+  const [authReady, setAuthReady] = useState(false);
+  const [user,      setUser]      = useState(null);
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [loginError,   setLoginError]   = useState("");
+  const [dataReady, setDataReady] = useState(false);
+  const [wines,    setWines]    = useState([]);
+  const [consumed, setConsumed] = useState([]);
+  const [page,     setPage]     = useState("wine");
+  const [subTab,   setSubTab]   = useState("mywine");
+  const [statsTab, setStatsTab] = useState("composition");
+  const [showAdd,  setShowAdd]  = useState(false);
+  const [detail,   setDetail]   = useState(null);
+  const [showShare,setShowShare]= useState(false);
+  const [isShared, setIsShared] = useState(false);
   const [sharedWines,setSharedWines]=useState([]);
-  const [ready,setReady]=useState(false);
-  const [page,setPage]=useState("wine");
-  const [wines,setWines]=useState([]);
-  const [consumed,setConsumed]=useState([]);
-  const [wishlist,setWishlist]=useState([]);
-  const [subTab,setSubTab]=useState("mywine");
-  const [statsTab,setStatsTab]=useState("composition");
-  const [showAdd,setShowAdd]=useState(false);
-  const [detail,setDetail]=useState(null);
-  const [showSettings,setShowSettings]=useState(false);
-  const [showShare,setShowShare]=useState(false);
-  const [toast,setToast]=useState("");
-  const [search,setSearch]=useState("");
+  const [toast,    setToast]    = useState("");
+  const [search,   setSearch]   = useState("");
   const [typeFilter,setTypeFilter]=useState("All");
-  const [apiKey,setApiKey]=useState(()=>LS.get("wc-apikey",""));
+  const saveTimer = useRef(null);
 
+  // 공유 URL 체크
   useEffect(()=>{
     const hash=window.location.hash;
     if(hash.startsWith("#share=")){
       try{
         const data=JSON.parse(decodeURIComponent(atob(hash.slice(7))));
-        if(Array.isArray(data)){ setIsShared(true); setSharedWines(data); setReady(true); return; }
+        if(Array.isArray(data)){setIsShared(true);setSharedWines(data);setAuthReady(true);return;}
       }catch{}
     }
-    setWines(LS.get("wc-wines",SAMPLE));
-    setConsumed(LS.get("wc-consumed",[]));
-    setWishlist(LS.get("wc-wishlist",[]));
-    setReady(true);
-  },[]);
+    // Firebase 인증 상태 감지
+    const unsubscribe = auth.onAuthStateChanged(async (u) => {
+      setUser(u);
+      setAuthReady(true);
+      if (u) {
+        // 로그인됨 → Firestore에서 데이터 불러오기
+        const saved = await cloudLoad(u.uid);
+        setWines(saved?.wines || SAMPLE);
+        setConsumed(saved?.consumed || []);
+        setDataReady(true);
+      } else {
+        // 로그아웃 상태
+        setWines([]);
+        setConsumed([]);
+        setDataReady(false);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
 
-  useEffect(()=>{ if(ready) LS.set("wc-wines",wines); },[wines,ready]);
-  useEffect(()=>{ if(ready) LS.set("wc-consumed",consumed); },[consumed,ready]);
-  useEffect(()=>{ if(ready) LS.set("wc-wishlist",wishlist); },[wishlist,ready]);
+  // 데이터 변경 시 자동 저장 (1.5초 debounce)
+  useEffect(()=>{
+    if(!user||!dataReady) return;
+    clearTimeout(saveTimer.current);
+    saveTimer.current=setTimeout(()=>cloudSave(user.uid,{wines,consumed}),1500);
+  },[wines,consumed]);
 
-  const notify=msg=>{setToast(msg);setTimeout(()=>setToast(""),2400);};
-  const handleAdd=wine=>{setWines(p=>[wine,...p]);notify("셀러에 추가됐습니다!");};
-  const handleDrink=(wine,note,rating)=>{
+  const notify = msg => {setToast(msg);setTimeout(()=>setToast(""),2400);};
+
+  const handleLogin = async () => {
+    setLoginLoading(true);
+    setLoginError("");
+    try {
+      await auth.signInWithPopup(googleProvider);
+    } catch(e) {
+      setLoginError("로그인 실패: " + (e.message||"다시 시도해주세요"));
+    }
+    setLoginLoading(false);
+  };
+
+  const handleLogout = async () => {
+    if(!window.confirm("로그아웃 하시겠습니까?")) return;
+    await auth.signOut();
+  };
+
+  const handleAdd    = w => {setWines(p=>[w,...p]);notify("셀러에 추가됐습니다!");};
+  const handleDrink  = (wine,note,rating) => {
     const today=new Date().toLocaleDateString("ko-KR");
     setConsumed(p=>[{...wine,drunkAt:today,drinkNote:note,drinkRating:rating},...p]);
     setWines(p=>p.filter(w=>w.id!==wine.id));
     setDetail(null);notify("마신 와인으로 기록됐습니다!");
   };
-  const handleDelete=id=>{setWines(p=>p.filter(w=>w.id!==id));setDetail(null);notify("삭제됐습니다");};
-
-  const shareList=()=>{
+  const handleDelete = id => {setWines(p=>p.filter(w=>w.id!==id));setDetail(null);notify("삭제됐습니다");};
+  const shareList    = () => {
     try{
       const enc=btoa(encodeURIComponent(JSON.stringify(wines)));
       const url=`${window.location.href.split('#')[0]}#share=${enc}`;
-      navigator.clipboard.writeText(url).then(()=>notify("공유 링크 복사!")).catch(()=>{alert("공유 URL:\n"+url);});
+      navigator.clipboard.writeText(url).then(()=>notify("공유 링크 복사!")).catch(()=>alert(url));
     }catch{notify("공유 오류");}
     setShowShare(false);
   };
@@ -622,73 +561,65 @@ function App(){
     return(!s||[w.name,w.producer,w.region,w.country,w.grapes].some(v=>v?.toLowerCase().includes(s)))&&(typeFilter==="All"||w.type===typeFilter);
   });
 
-
-
-  if(!ready) return(
-    <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",background:"#F4F2EF",flexDirection:"column",gap:12}}>
+  // 로딩 중
+  if(!authReady) return(
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",height:"100vh",background:"#F4F2EF",gap:12}}>
       <div style={{fontSize:40}}>🍷</div>
-      <div style={{fontSize:14,color:"#8A8A8E"}}>셀러 불러오는 중...</div>
+      <div style={{fontSize:14,color:"#8A8A8E"}}>불러오는 중...</div>
     </div>
   );
 
-  // ── 읽기 전용 공유 뷰 ──────────────────────────────────────────────────────
-  if(isShared){
-    return(
-      <div style={{width:"100%",maxWidth:430,margin:"0 auto",minHeight:"100vh",background:"#F4F2EF",color:"#1C1C1E"}}>
-        {/* 읽기 전용 배너 */}
-        <div style={{background:"#1C1C1E",padding:"14px 20px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:10}}>
-          <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <span style={{fontSize:16}}>👁</span>
-            <div>
-              <div style={{fontSize:13,fontWeight:700,color:"#fff"}}>공유된 셀러</div>
-              <div style={{fontSize:11,color:"rgba(255,255,255,.5)"}}>읽기 전용 · 편집 불가</div>
+  // 공유 뷰 (읽기 전용)
+  if(isShared) return(
+    <div style={{width:"100%",maxWidth:430,margin:"0 auto",minHeight:"100vh",background:"#F4F2EF"}}>
+      <div style={{background:"#1C1C1E",padding:"14px 20px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:10}}>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <span>👁</span>
+          <div><div style={{fontSize:13,fontWeight:700,color:"#fff"}}>공유된 셀러</div><div style={{fontSize:11,color:"rgba(255,255,255,.5)"}}>읽기 전용</div></div>
+        </div>
+        <div style={{background:"rgba(255,255,255,.12)",borderRadius:20,padding:"4px 12px",fontSize:11,color:"rgba(255,255,255,.7)",fontWeight:600}}>{sharedWines.length}병</div>
+      </div>
+      <div style={{padding:"16px 20px 40px"}}>
+        {sharedWines.map((wine,i)=>(
+          <div key={i} style={{background:"#fff",borderRadius:14,marginBottom:12,border:"1px solid #E8E4DE",overflow:"hidden"}}>
+            <div style={{display:"flex",gap:14,padding:"14px 16px 12px"}}>
+              <WineImg url={wine.imageUrl} wine={wine}/>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:12,color:"#8A8A8E",marginBottom:3}}>{wine.producer}</div>
+                <div style={{fontSize:16,fontWeight:700,color:"#1C1C1E",marginBottom:4,lineHeight:1.3}}>{wine.name}</div>
+                <div style={{fontSize:12,color:"#8A8A8E",marginBottom:9}}>{[wine.region,wine.country].filter(Boolean).join(", ")}</div>
+                <MatBadge mat={wine.maturity}/>
+              </div>
+            </div>
+            <div style={{background:"#F6F4F0",borderTop:"1px solid #E8E4DE",padding:"8px 16px",fontSize:12,color:"#8A8A8E"}}>
+              음용 적기: <span style={{color:"#C07840",fontWeight:600}}>{drinkWin(wine.type,wine.vintage,wine.region)}</span>
             </div>
           </div>
-          <div style={{background:"rgba(255,255,255,.12)",borderRadius:20,padding:"4px 12px",fontSize:11,color:"rgba(255,255,255,.7)",fontWeight:600}}>
-            {sharedWines.length}병
-          </div>
-        </div>
-        {/* 와인 목록 (읽기 전용 카드) */}
-        <div style={{padding:"16px 20px 40px"}}>
-          {sharedWines.length===0
-            ?<div style={{textAlign:"center",padding:"60px 0",color:"#8A8A8E"}}><div style={{fontSize:40,marginBottom:12}}>🍷</div><div>공유된 와인이 없습니다</div></div>
-            :sharedWines.map((wine,i)=>(
-              <div key={i} style={{background:"#fff",borderRadius:14,marginBottom:12,border:"1px solid #E8E4DE",overflow:"hidden"}}>
-                <div style={{display:"flex",gap:14,padding:"14px 16px 12px"}}>
-                  <WineImg url={wine.imageUrl} wine={wine}/>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:12,color:"#8A8A8E",marginBottom:3}}>{wine.producer}</div>
-                    <div style={{fontSize:16,fontWeight:700,color:"#1C1C1E",marginBottom:4,lineHeight:1.3}}>{wine.name}</div>
-                    <div style={{fontSize:12,color:"#8A8A8E",marginBottom:9}}>{[wine.region,wine.country].filter(Boolean).join(", ")}</div>
-                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:6}}>
-                      <MatBadge mat={wine.maturity}/>
-                      <span style={{fontSize:12,color:"#8A8A8E"}}>{wine.volume||"75cl"}</span>
-                    </div>
-                    {wine.grapes&&<div style={{fontSize:11,color:"#AEAAB0",marginTop:5}}>{wine.grapes}</div>}
-                  </div>
-                </div>
-                <div style={{background:"#F6F4F0",borderTop:"1px solid #E8E4DE",padding:"8px 16px",display:"flex",gap:20,fontSize:12,color:"#8A8A8E"}}>
-                  <span>구매가: {wine.purchasePrice?`${Number(wine.purchasePrice).toLocaleString()}원`:"--"}</span>
-                  <span>음용: <span style={{color:"#C07840",fontWeight:600}}>{drinkWin(wine.type,wine.vintage,wine.region)}</span></span>
-                </div>
-              </div>
-            ))
-          }
-        </div>
+        ))}
       </div>
-    );
-  }
+    </div>
+  );
 
+  // 로그인 화면
+  if(!user) return <LoginScreen onLogin={handleLogin} loading={loginLoading} error={loginError}/>;
+
+  // 메인 앱
   return(
-    <div style={{width:"100%",maxWidth:430,margin:"0 auto",minHeight:"100vh",background:"#F4F2EF",color:"#1C1C1E",position:"relative"}}>
+    <div style={{width:"100%",maxWidth:430,margin:"0 auto",minHeight:"100vh",background:"#F4F2EF",color:"#1C1C1E"}}>
       <div style={{height:50}}/>
 
       {page==="wine"&&<>
         <div style={{padding:"0 20px 14px"}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-            <div style={{fontSize:28,fontWeight:700}}>내 와인</div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+            <div>
+              <div style={{fontSize:26,fontWeight:700}}>내 와인</div>
+              <div style={{display:"flex",alignItems:"center",gap:6,marginTop:3}}>
+                {user.photoURL&&<img src={user.photoURL} style={{width:16,height:16,borderRadius:"50%"}}/>}
+                <span style={{fontSize:11,color:"#8A8A8E"}}>{user.displayName||user.email}</span>
+                <span onClick={handleLogout} style={{fontSize:11,color:"#C07840",cursor:"pointer",textDecoration:"underline"}}>로그아웃</span>
+              </div>
+            </div>
             <div style={{display:"flex",gap:10,alignItems:"center"}}>
-              <button onClick={()=>setShowSettings(true)} style={{background:"none",border:"none",cursor:"pointer",fontSize:20,padding:"4px",color:"#8A8A8E"}}>⚙️</button>
               <button onClick={()=>setShowShare(true)} style={{background:"none",border:"none",cursor:"pointer",fontSize:20,padding:"4px",color:"#1C1C1E"}}>↗</button>
               <button onClick={()=>setShowAdd(true)} style={{background:"#1C1C1E",border:"none",borderRadius:10,width:36,height:36,color:"#fff",fontSize:24,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>+</button>
             </div>
@@ -700,8 +631,7 @@ function App(){
           </div>
           {subTab==="mywine"&&<>
             <div style={{position:"relative",marginBottom:10}}>
-              <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="와인, 생산자, 지역 검색..."
-                style={{width:"100%",boxSizing:"border-box",background:"#fff",border:"1px solid #DDD9D3",borderRadius:10,padding:"10px 13px 10px 38px",fontSize:14,outline:"none",color:"#1C1C1E"}}/>
+              <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="와인, 생산자, 지역 검색..." style={{width:"100%",boxSizing:"border-box",background:"#fff",border:"1px solid #DDD9D3",borderRadius:10,padding:"10px 13px 10px 38px",fontSize:14,outline:"none",color:"#1C1C1E"}}/>
               <span style={{position:"absolute",left:12,top:"50%",transform:"translateY(-50%)",color:"#8A8A8E",fontSize:14}}>🔍</span>
             </div>
             <div style={{display:"flex",gap:7,overflowX:"auto",paddingBottom:4,scrollbarWidth:"none"}}>
@@ -720,50 +650,37 @@ function App(){
             ?<div style={{textAlign:"center",padding:"70px 0",color:"#8A8A8E"}}><div style={{fontSize:44,marginBottom:14}}>🫗</div><div style={{fontSize:15,fontWeight:600,marginBottom:6}}>마신 와인 기록이 없습니다</div></div>
             :consumed.map((w,i)=><ConsumedCard key={i} wine={w}/>)
           )}
-          {subTab==="wishlist"&&<div style={{textAlign:"center",padding:"70px 0",color:"#8A8A8E"}}><div style={{fontSize:44,marginBottom:14}}>⭐</div><div style={{fontSize:15,fontWeight:600,marginBottom:6}}>위시리스트가 비어있습니다</div></div>}
+          {subTab==="wishlist"&&<div style={{textAlign:"center",padding:"70px 0",color:"#8A8A8E"}}><div style={{fontSize:44,marginBottom:14}}>⭐</div><div style={{fontSize:15,fontWeight:600}}>위시리스트가 비어있습니다</div></div>}
         </div>
       </>}
 
       {page==="stats"&&<>
-        <div style={{padding:"0 20px 18px"}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
-            <div style={{fontSize:28,fontWeight:700}}>통계</div>
-          </div>
-        </div>
+        <div style={{padding:"0 20px 18px"}}><div style={{fontSize:26,fontWeight:700,marginBottom:4}}>통계</div></div>
         <StatsPage wines={wines} tab={statsTab} setTab={setStatsTab}/>
       </>}
 
-      <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:430,background:"#fff",borderTop:"1px solid #E8E4DE",display:"flex",padding:"10px 0 max(30px, env(safe-area-inset-bottom))",zIndex:100}}>
+      <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:430,background:"#fff",borderTop:"1px solid #E8E4DE",display:"flex",padding:"10px 0 max(30px,env(safe-area-inset-bottom))",zIndex:100}}>
         {[["wine","🍾","내 와인"],["stats","📊","통계"]].map(([p,icon,label])=>(
           <button key={p} onClick={()=>setPage(p)} style={{flex:1,background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,color:page===p?"#C07840":"#8A8A8E"}}>
-            <span style={{fontSize:22}}>{icon}</span>
-            <span style={{fontSize:11,fontWeight:page===p?700:400}}>{label}</span>
+            <span style={{fontSize:22}}>{icon}</span><span style={{fontSize:11,fontWeight:page===p?700:400}}>{label}</span>
           </button>
         ))}
       </div>
 
       {toast&&<div style={{position:"fixed",bottom:86,left:"50%",transform:"translateX(-50%)",background:"#1C1C1E",color:"#fff",padding:"10px 22px",borderRadius:22,fontSize:13,fontWeight:600,zIndex:300,whiteSpace:"nowrap",boxShadow:"0 4px 20px rgba(0,0,0,.25)"}}>{toast}</div>}
 
-      {showAdd&&<AddModal onClose={()=>setShowAdd(false)} onAdd={handleAdd} apiKey={apiKey}/>}
+      {showAdd&&<AddModal onClose={()=>setShowAdd(false)} onAdd={handleAdd}/>}
       {detail&&<DetailModal wine={detail} onClose={()=>setDetail(null)} onDrink={(n,r)=>handleDrink(detail,n,r)} onDelete={()=>handleDelete(detail.id)}/>}
-      {showSettings&&<SettingsModal onClose={()=>setShowSettings(false)} apiKey={apiKey} setApiKey={setApiKey}/>}
-
-      {showShare&&(
-        <Sheet onClose={()=>setShowShare(false)}>
-          <div style={{fontSize:20,fontWeight:700,marginBottom:8}}>셀러 공유하기</div>
-          <div style={{fontSize:13,color:"#8A8A8E",lineHeight:1.7,marginBottom:20}}>
-            URL을 받은 분은 내 셀러를 <strong style={{color:"#1C1C1E"}}>읽기 전용</strong>으로 볼 수 있습니다.<br/>
-            현재 <strong style={{color:"#1C1C1E"}}>{wines.length}병</strong> 공유 (마신 와인 제외)
-          </div>
-          <button onClick={shareList} style={{width:"100%",background:"#C07840",border:"none",borderRadius:14,padding:"15px",color:"#fff",fontSize:15,fontWeight:700,cursor:"pointer"}}>공유 링크 복사하기</button>
-        </Sheet>
-      )}
+      {showShare&&<Sheet onClose={()=>setShowShare(false)}>
+        <div style={{fontSize:20,fontWeight:700,marginBottom:8}}>셀러 공유하기</div>
+        <div style={{fontSize:13,color:"#8A8A8E",lineHeight:1.7,marginBottom:20}}>링크를 받은 분은 <strong style={{color:"#1C1C1E"}}>읽기 전용</strong>으로 볼 수 있습니다.<br/>현재 <strong style={{color:"#1C1C1E"}}>{wines.length}병</strong> 공유</div>
+        <button onClick={shareList} style={{width:"100%",background:"#C07840",border:"none",borderRadius:14,padding:"15px",color:"#fff",fontSize:15,fontWeight:700,cursor:"pointer"}}>공유 링크 복사하기</button>
+      </Sheet>}
     </div>
   );
 }
 
-const root=ReactDOM.createRoot(document.getElementById('root'));
-root.render(<App/>);
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
 </script>
 </body>
 </html>
