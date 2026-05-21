@@ -22,6 +22,15 @@
 const {useState,useEffect,useRef,useCallback} = React;
 
 // ─── Constants ───────────────────────────────────────────────────────────────
+const firebaseConfig = {
+  apiKey: "AIzaSyCHtiy2-iryrlwuhEvVrEboriM3IBJut2U",
+  authDomain: "wine-cellar-56a6b.firebaseapp.com",
+  projectId: "wine-cellar-56a6b",
+  storageBucket: "wine-cellar-56a6b.firebasestorage.app",
+  messagingSenderId: "205126816403",
+  appId: "1:205126816403:web:ad02ad40aeae51ad217366"
+};
+
 const TYPES   = ["Red","White","Rosé","Sparkling","Orange"];
 const T_LABEL = {Red:"레드",White:"화이트",Rosé:"로제",Sparkling:"스파클링",Orange:"오렌지"};
 const T_HUE   = {Red:"#7B1728",White:"#A87E10",Rosé:"#B84060",Sparkling:"#1E8E84",Orange:"#A84810"};
