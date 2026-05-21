@@ -34,7 +34,6 @@ const firebaseConfig = {
   storageBucket: "wine-cellar-56a6b.firebasestorage.app",
   messagingSenderId: "205126816403",
   appId: "1:205126816403:web:ad02ad40aeae51ad217366"
-
 };
 // ════════════════════════════════════════════════════
 
@@ -53,6 +52,24 @@ async function cloudLoad(uid) {
 }
 function cloudSave(uid, data) {
   db.collection("users").doc(uid).set(data).catch(e => console.error("save error", e));
+}
+
+// 공유 링크 생성 — Firestore에 저장 후 짧은 코드 반환
+async function createShareLink(wines) {
+  const id = Math.random().toString(36).slice(2, 8); // 6자리 코드
+  await db.collection("shares").doc(id).set({
+    wines,
+    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+  });
+  return `${window.location.href.split('#')[0]}#s=${id}`;
+}
+
+// 공유 링크로 와인 불러오기
+async function loadShareLink(id) {
+  try {
+    const snap = await db.collection("shares").doc(id).get();
+    return snap.exists ? snap.data().wines : null;
+  } catch(e) { return null; }
 }
 
 // ─── 상수 ──────────────────────────────────────────
@@ -488,6 +505,17 @@ function App() {
   // 공유 URL 체크
   useEffect(()=>{
     const hash=window.location.hash;
+    // 짧은 공유 링크 (#s=xxxxxx)
+    if(hash.startsWith("#s=")) {
+      const id = hash.slice(3);
+      setAuthReady(true);
+      loadShareLink(id).then(wines => {
+        if(wines) { setIsShared(true); setSharedWines(wines); }
+        else { alert("공유 링크를 찾을 수 없습니다."); window.location.hash=""; }
+      });
+      return;
+    }
+    // 구형 긴 공유 링크 (#share=...) 하위 호환
     if(hash.startsWith("#share=")){
       try{
         const data=JSON.parse(decodeURIComponent(atob(hash.slice(7))));
@@ -547,13 +575,17 @@ function App() {
     setDetail(null);notify("마신 와인으로 기록됐습니다!");
   };
   const handleDelete = id => {setWines(p=>p.filter(w=>w.id!==id));setDetail(null);notify("삭제됐습니다");};
-  const shareList    = () => {
-    try{
-      const enc=btoa(encodeURIComponent(JSON.stringify(wines)));
-      const url=`${window.location.href.split('#')[0]}#share=${enc}`;
-      navigator.clipboard.writeText(url).then(()=>notify("공유 링크 복사!")).catch(()=>alert(url));
-    }catch{notify("공유 오류");}
+  const shareList = async () => {
     setShowShare(false);
+    notify("공유 링크 생성 중...");
+    try {
+      const url = await createShareLink(wines);
+      await navigator.clipboard.writeText(url);
+      notify("공유 링크 복사 완료!");
+    } catch(e) {
+      notify("공유 링크 생성 실패");
+      console.error(e);
+    }
   };
 
   const filtered=wines.filter(w=>{
